@@ -8,9 +8,8 @@ import (
 	"io/ioutil"
 	"github.com/paulmach/go.geojson"
 	"github.com/jszwec/csvutil"
-    "gonum.org/v1/gonum/graph/simple"
-    "gonum.org/v1/gonum/graph/path"
-    "github.com/asmarques/geodist"
+	"gonum.org/v1/gonum/graph/simple"
+	// "gonum.org/v1/gonum/graph/path"
 )
 
 
@@ -24,7 +23,7 @@ type Point struct {
 // https://github.com/olivermichel/vincenty/blob/master/geo.go
 // Vincenty calculates the great circle distance between Points x and y
 // The distance is returned in meters, x and y must be specified in degrees
-func Vincenty(x, y Point) float64 {
+func vincenty(x, y Point) float64 {
 
 	sq := func(x float64) float64 { return x * x }
 	degToRad := func(x float64) float64 { return x * math.Pi / 180 }
@@ -106,13 +105,13 @@ func readFileBytes(filename string) []byte {
 	// Open file
 	fileIO, err1 := os.Open(filename)
 	if err1 != nil {
-		fmt.Println(err)
+		fmt.Println(err1)
 	}
 	defer fileIO.Close()
 	// Read bytes
 	raw, err2 := ioutil.ReadAll(fileIO)
 	if err1 != nil {
-		fmt.Println(err)
+		fmt.Println(err2)
 	}
 	return raw
 }
@@ -120,11 +119,11 @@ func readFileBytes(filename string) []byte {
 
 func readCities(filename string) []City {
 	rawCSV := readFileBytes(filename)
-    var cities []City
-    if err := csvutil.Unmarshal(rawCSV, cities); err != nil {
-        fmt.Println("error:", err)
-    }
-    return cities
+	var cities []City
+	if err := csvutil.Unmarshal(rawCSV, &cities); err != nil {
+		fmt.Println("error:", err)
+	}
+	return cities
 }
 
 
@@ -169,9 +168,9 @@ func geoJsonToData(filename string) [][]Point {
 
 
 func getGeoData(roadFileName string, railFileName string, seaFileName string, cityFileName string) networkGeoData {
-	var roadData [][][]float64 = geoJsonToData(roadFileName)
-	var railData [][][]float64 = geoJsonToData(railFileName)
-	var seaData [][][]float64 = geoJsonToData(seaFileName)
+	var roadData [][]Point = geoJsonToData(roadFileName)
+	var railData [][]Point = geoJsonToData(railFileName)
+	var seaData [][]Point = geoJsonToData(seaFileName)
 	var cityData []City = readCities(cityFileName)
 
 	result := networkGeoData{
@@ -185,47 +184,70 @@ func getGeoData(roadFileName string, railFileName string, seaFileName string, ci
 }
 
 
-func initializeGraph() {
+func initializeGraph() *simple.WeightedDirectedGraph {
 	// self - weight of a self-connection
 	// abset - weight of an absent connection
-	var self int = 0
-	var absent int = math.Inf(1)
+	var self float64 = 0
+	var absent float64 = math.Inf(1)
 	// We use a directed graph because transport costs are not necessarily symmetrical
 	g := simple.NewWeightedDirectedGraph(self, absent)
 	return g
 }
 
 
-func getLength(linestring [][]float64) float64 {
-
+func getLength(linestring []Point) float64 {
+	var totalLength float64 = 0
+	for i := 1; i < len(linestring); i++ {
+		dist := vincenty(linestring[i-1], linestring[i])
+		totalLength = totalLength + dist
+	}
+	return totalLength
 }
 
 
-func addTransportEdges(g simple.NewWeightedDirectedGraph, myGeoData networkGeoData) simple.NewWeightedDirectedGraph {
-	var nodeIdMap map[[2]int]int //[lon, lat] -> id
+func addTransportEdges(g *simple.WeightedDirectedGraph, geoData [][]Point) *simple.WeightedDirectedGraph {
+	var lastID int = 0
+	pointToNodeIdx := make(map[Point]int)
 
 	// roads
-	for i := 0; i < len(myGeoData.road); i++ {
-		ls := myGeoData.road[i]
-		length := getLength(ls)
-		// Start at first
-   		for j := 1; j < len(ls); j++ {
-   			// Both directions
-   			id_from := ls[j-1]
-   			id_to := ls[j]
-   			weightedEdge := simple.WeightedEdge{F: simple.Node(id_from), T: simple.Node(id_to), W: weight}
-   		}
+	for i := 0; i < len(geoData); i++ {
+		linestring := geoData[i]
+		for j := 1; j < len(linestring); j++ {
+			cur := linestring[j]
+			prev := linestring[j-1]
 
+			length := vincenty(prev, cur)
+			
+			id_from, ok := pointToNodeIdx[cur]
+			if !ok {
+				lastID++
+				pointToNodeIdx[cur] = lastID
+			}
+
+			id_to, ok := pointToNodeIdx[prev]
+			if !ok {
+				lastID++
+				pointToNodeIdx[prev] = lastID
+			}
+
+			// Both directions
+			if id_to != id_from {
+				weightedEdge1 := simple.WeightedEdge{F: simple.Node(id_from), T: simple.Node(id_to), W: length}
+				g.SetWeightedEdge(weightedEdge1)
+				weightedEdge2 := simple.WeightedEdge{F: simple.Node(id_to), T: simple.Node(id_from), W: length}
+				g.SetWeightedEdge(weightedEdge2)
+			}
+		}
 	}
 
-    graph.SetWeightedEdge(weightedEdge)
+	return g
 }
 
 
-func matchCitiesToNodes(cities []City, nodes []) map[int]int {
-	var result map[int]int
-
-}
+// func matchCitiesToNodes(cities []City, nodes []) map[int]int {
+// 	var result map[int]int
+// 	return
+// }
 
 
 func main() {
@@ -233,16 +255,19 @@ func main() {
 	var roadFileName string = "/Users/work/Documents/bri_market_access/data/geojson/roads_prebri.geojson"
 	var railFileName string = "/Users/work/Documents/bri_market_access/data/geojson/rails_prebri.geojson"
 	var seaFileName string = "/Users/work/Documents/bri_market_access/data/geojson/sea_prebri.geojson"
-	myGeoData := getGeoData(roadFileName, railFileName, seaFileName)
+	var cityFileName string = "/Users/work/Documents/bri_market_access/data/csv/cities.csv"
+	myGeoData := getGeoData(roadFileName, railFileName, seaFileName, cityFileName)
 	// fmt.Println(myGeoData)
 
 	// 2. Create graph
 	g := initializeGraph()
-	g := addTransportEdges(g, myGeoData)
+	g = addTransportEdges(g, myGeoData.road)
+	g = addTransportEdges(g, myGeoData.rail)
+	g = addTransportEdges(g, myGeoData.sea)
 
 
 	//	2a. Match cities to nodes
-	cityNodes := matchCitiesToNodes(myGeoData)
+	// cityNodes := matchCitiesToNodes(myGeoData)
 	//	2b. Add segment costs to graph
 	//	2c. Create border crossings
 	//	2d. Create intermodal transfers
