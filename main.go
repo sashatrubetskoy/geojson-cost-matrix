@@ -167,7 +167,15 @@ func geoJsonToData(filename string) [][]Point {
 }
 
 
-func getGeoData(roadFileName string, railFileName string, seaFileName string, cityFileName string) networkGeoData {
+type Filenames struct {
+	road	string
+	rail	string
+	sea		string
+	city	string
+}
+
+
+func getGeoData(filenames Filenames) map[string]networkGeoData {
 	var roadData [][]Point = geoJsonToData(roadFileName)
 	var railData [][]Point = geoJsonToData(railFileName)
 	var seaData [][]Point = geoJsonToData(seaFileName)
@@ -244,31 +252,34 @@ func addTransportEdges(g *simple.WeightedDirectedGraph, geoData [][]Point) *simp
 }
 
 
-// func matchCitiesToNodes(cities []City, nodes []) map[int]int {
-// 	var result map[int]int
-// 	return
-// }
+func addCities(g *simple.WeightedDirectedGraph, cities []City) *simple.WeightedDirectedGraph {
+	for i := 0; i < len(cities); i++ {
+		
+	}
+}
 
 
 func main() {
 	// 1. Read geojsons
-	var roadFileName string = "/Users/work/Documents/bri_market_access/data/geojson/roads_prebri.geojson"
-	var railFileName string = "/Users/work/Documents/bri_market_access/data/geojson/rails_prebri.geojson"
-	var seaFileName string = "/Users/work/Documents/bri_market_access/data/geojson/sea_prebri.geojson"
-	var cityFileName string = "/Users/work/Documents/bri_market_access/data/csv/cities.csv"
-	myGeoData := getGeoData(roadFileName, railFileName, seaFileName, cityFileName)
+	filenames := Filenames{
+		road: "/Users/work/Documents/bri_market_access/data/geojson/roads_prebri.geojson",
+		rail: "/Users/work/Documents/bri_market_access/data/geojson/rails_prebri.geojson",
+		sea: "/Users/work/Documents/bri_market_access/data/geojson/sea_prebri.geojson",
+		city: "/Users/work/Documents/bri_market_access/data/csv/cities.csv",
+	}
+	myGeoData := getGeoData(filenames)
 	// fmt.Println(myGeoData)
 
 	// 2. Create graph
+	//	2.a. Initialize and add transport routes
 	g := initializeGraph()
-	g = addTransportEdges(g, myGeoData.road)
-	g = addTransportEdges(g, myGeoData.rail)
-	g = addTransportEdges(g, myGeoData.sea)
+	g = addTransportEdges(g, myGeoData)
 
+	//	2.b. Add cities
+	g = addCities(g, myGeoData.cities)
 
 	//	2a. Match cities to nodes
 	// cityNodes := matchCitiesToNodes(myGeoData)
-	//	2b. Add segment costs to graph
 	//	2c. Create border crossings
 	//	2d. Create intermodal transfers
 	//	2e. Add external market links
